@@ -148,16 +148,21 @@ export default function Goal() {
 
   // ── Cashflow ─────────────────────────────────────────────────
   const liquidPct    = netWorth ? Number(netWorth.liquid_pct) : null
+  const debtVal      = netWorth ? Number(netWorth.debt     ?? 0) : 0
+  const debtPct      = netWorth ? Number(netWorth.debt_pct ?? 0) : 0
   const liquidStatus = liquidPct === null ? null
-    : liquidPct < 20 ? 'unsafe'
+    : (liquidPct < 20 || (debtVal > 0 && debtPct > 20)) ? 'unsafe'
     : liquidPct < 40 ? 'tight'
     : 'healthy'
   const avgSaving    = Number(progress?.monthly_avg_saving ?? 0)
   const remaining    = Number(progress?.remaining_amount   ?? 0)
-  const availForGoal = liquidStatus === 'unsafe'  ? 0
+  let availForGoal = liquidStatus === 'unsafe'  ? 0
     : liquidStatus === 'tight'   ? avgSaving * 0.5
     : liquidStatus === 'healthy' ? avgSaving * 0.8
     : null
+  // When debt is high, cap safe allocation at 30% of savings
+  const debtAdjApplied = availForGoal !== null && availForGoal > 0 && debtPct > 20
+  if (debtAdjApplied) availForGoal = Math.min(availForGoal, avgSaving * 0.3)
   const adjMonths    = availForGoal === null || availForGoal <= 0 || remaining <= 0
     ? null
     : Math.ceil(remaining / availForGoal)
@@ -362,10 +367,17 @@ export default function Goal() {
                 </div>
 
                 <div className={`rounded-xl px-4 py-3 text-xs leading-relaxed ${lc.bg}`}>
-                  {liquidStatus === 'healthy' && 'Your liquidity is healthy. You can allocate more confidently.'}
+                  {liquidStatus === 'healthy' && !debtVal && 'Your liquidity is healthy. You can allocate more confidently.'}
+                  {liquidStatus === 'healthy' && debtVal > 0 && !debtAdjApplied && 'Liquidity is healthy. Consider paying down credit card debt alongside your goal.'}
                   {liquidStatus === 'tight'   && 'Liquidity is tight. Maintain buffer before increasing contributions.'}
-                  {liquidStatus === 'unsafe'  && 'Build emergency buffer before allocating more to this goal.'}
+                  {liquidStatus === 'unsafe' && debtPct > 20 && 'Build your cash buffer and reduce debt before increasing goal contributions.'}
+                  {liquidStatus === 'unsafe' && debtPct <= 20 && 'Build emergency buffer before allocating more to this goal.'}
                 </div>
+                {debtAdjApplied && (
+                  <div className="rounded-xl px-4 py-3 text-xs bg-red-50 text-red-600">
+                    <span className="font-bold">Debt adjustment applied</span> — high debt ({debtPct}% of assets) reduces your safe allocation to {fmt(availForGoal)}/mo.
+                  </div>
+                )}
               </Card>
             </div>
           )}
@@ -380,6 +392,13 @@ export default function Goal() {
                 <div className={`rounded-xl px-4 py-3 text-sm font-bold ${propBannerClass}`}>
                   {propBannerText}
                 </div>
+
+                {/* Debt warning */}
+                {debtVal > 0 && (
+                  <div className="rounded-xl bg-amber-50 px-4 py-3 text-xs text-amber-700 leading-relaxed">
+                    <span className="font-bold">Outstanding debt ({fmt(debtVal)})</span> reduces your borrowing readiness. Lenders assess debt-to-income ratio and will factor this into your application.
+                  </div>
+                )}
 
                 {/* Readiness bar */}
                 <div>

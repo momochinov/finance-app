@@ -54,6 +54,8 @@ export default function Dashboard() {
   const longTerm         = Number(netWorthNow?.long_term     ?? 0)
   const liquidPct        = Number(netWorthNow?.liquid_pct    ?? 0)
   const longTermPct      = Number(netWorthNow?.long_term_pct ?? 0)
+  const debt             = Number(netWorthNow?.debt          ?? 0)
+  const debtPct          = Number(netWorthNow?.debt_pct      ?? 0)
 
   // Month-over-month change from the 6-month series (oldest→newest after reverse)
   const nwChange = nwSeries.length >= 2
@@ -143,7 +145,19 @@ export default function Dashboard() {
 
   // ── Decision card ─────────────────────────────────────────────
   let decisionLabel, decisionDetail, decisionAction, decisionBg, decisionDot
-  if (savings < 0) {
+  if (debt > 0 && debtPct > 20) {
+    decisionLabel  = 'Debt is too high'
+    decisionDetail = `Debt is ${debtPct}% of your assets — high debt costs more than investments earn.`
+    decisionAction = 'Prioritise credit card repayment before increasing investments'
+    decisionBg     = 'bg-red-50'
+    decisionDot    = 'bg-red-500'
+  } else if (debt > 0) {
+    decisionLabel  = 'Pay down credit card'
+    decisionDetail = `${formatCurrency(debt)} in credit card debt is reducing your net worth.`
+    decisionAction = 'Clear the balance before directing surplus to long-term investments'
+    decisionBg     = 'bg-amber-50'
+    decisionDot    = 'bg-amber-400'
+  } else if (savings < 0) {
     decisionLabel  = 'Stop the bleed'
     decisionDetail = `You spent ${formatCurrency(Math.abs(savings))} more than you earned this month.`
     decisionAction = 'Cut one variable category to get back into the black'
@@ -236,6 +250,21 @@ export default function Dashboard() {
             <p className="text-white font-bold text-sm mt-0.5">{liquidPct}% / {longTermPct}%</p>
           </div>
         </div>
+
+        {/* Debt row */}
+        {debt > 0 && (
+          <div className="mt-4 flex items-center justify-between border-t border-slate-800 pt-3">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-red-400 shrink-0" />
+              <p className="text-slate-400 text-xs">
+                Credit card debt{debtPct > 0 ? ` · ${debtPct}% of assets` : ''}
+              </p>
+            </div>
+            <span className="text-red-400 font-bold text-sm tabular-nums">
+              -{formatCurrency(debt)}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* ── Decision Card ──────────────────────────────────── */}

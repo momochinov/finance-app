@@ -64,8 +64,8 @@ create table if not exists balances (
   month          text           not null,              -- 'YYYY-MM'
   account        text           not null,
   liquidity_type text           not null check (liquidity_type in ('liquid', 'long_term')),
-  account_type   text           not null check (account_type in ('saving', 'term_deposit', 'investment', 'cash')),
-  balance        numeric(12, 2) not null default 0,
+  account_type   text           not null check (account_type in ('saving', 'term_deposit', 'investment', 'cash', 'credit_card')),
+  balance        numeric(12, 2) not null check (balance <> 0),
   unique (user_id, month, account)
 );
 
@@ -298,37 +298,49 @@ order by user_id, month;
 
 -- ── net_worth_summary ────────────────────────────────────────
 -- Aggregates balance snapshots per month into net worth + allocation.
+-- Positive balances = assets. Negative balances = liabilities (e.g. credit cards).
 -- Columns:
---   net_worth                   – SUM of all account balances
---   liquid, long_term           – split by account type
---   liquid_pct, long_term_pct   – allocation percentages
---   liquidity_warning           – true when liquid_pct < 20 %
+--   net_worth                         – SUM of all balances (assets minus debt)
+--   assets_total                      – SUM of positive balances only
+--   debt                              – ABS(SUM of negative balances)
+--   liquid, long_term                 – positive balances split by liquidity_type
+--   liquid_pct, long_term_pct         – allocation % relative to assets_total
+--   debt_pct                          – debt as % of assets_total
+--   liquidity_warning                 – true when liquid_pct < 20 OR debt_pct > 20
 create or replace view net_worth_summary
   with (security_invoker = true)
 as
 select
   user_id,
   month,
-  sum(balance)::numeric(12, 2)                                                       as net_worth,
-  sum(case when liquidity_type = 'liquid'    then balance else 0 end)::numeric(12, 2) as liquid,
-  sum(case when liquidity_type = 'long_term' then balance else 0 end)::numeric(12, 2) as long_term,
+  sum(balance)::numeric(12, 2)                                                                         as net_worth,
+  sum(case when balance > 0 then balance else 0 end)::numeric(12, 2)                                   as assets_total,
+  abs(sum(case when balance < 0 then balance else 0 end))::numeric(12, 2)                              as debt,
+  sum(case when liquidity_type = 'liquid'    and balance > 0 then balance else 0 end)::numeric(12, 2)  as liquid,
+  sum(case when liquidity_type = 'long_term' and balance > 0 then balance else 0 end)::numeric(12, 2)  as long_term,
   round(
-    sum(case when liquidity_type = 'liquid'    then balance else 0 end) /
-    nullif(sum(balance), 0) * 100,
-    1
-  )                                                                                    as liquid_pct,
+    sum(case when liquidity_type = 'liquid'    and balance > 0 then balance else 0 end) /
+    nullif(sum(case when balance > 0 then balance else 0 end), 0) * 100, 1
+  )                                                                                                      as liquid_pct,
   round(
-    sum(case when liquidity_type = 'long_term' then balance else 0 end) /
-    nullif(sum(balance), 0) * 100,
-    1
-  )                                                                                    as long_term_pct,
+    sum(case when liquidity_type = 'long_term' and balance > 0 then balance else 0 end) /
+    nullif(sum(case when balance > 0 then balance else 0 end), 0) * 100, 1
+  )                                                                                                      as long_term_pct,
+  round(
+    abs(sum(case when balance < 0 then balance else 0 end)) /
+    nullif(sum(case when balance > 0 then balance else 0 end), 0) * 100, 1
+  )                                                                                                      as debt_pct,
   (
     round(
-      sum(case when liquidity_type = 'liquid' then balance else 0 end) /
-      nullif(sum(balance), 0) * 100,
-      1
+      sum(case when liquidity_type = 'liquid' and balance > 0 then balance else 0 end) /
+      nullif(sum(case when balance > 0 then balance else 0 end), 0) * 100, 1
     ) < 20
-  )                                                                                    as liquidity_warning
+    OR
+    round(
+      abs(sum(case when balance < 0 then balance else 0 end)) /
+      nullif(sum(case when balance > 0 then balance else 0 end), 0) * 100, 1
+    ) > 20
+  )                                                                                                      as liquidity_warning
 from balances
 group by user_id, month
 order by user_id, month;
